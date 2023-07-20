@@ -20,18 +20,13 @@
 #
 #     https://www.nipreps.org/community/licensing/
 #
-import numpy as np
-from mriqc.mriqc.qc import get_spike_mask, get_slice_spike_percentage, get_global_spike_percentage
-
 import pytest
 import nibabel as nib
 from dipy.core.gradients import gradient_table
 from dipy.data.fetcher import fetch_sherbrooke_3shell
 import os.path as op
-from ..diffusion import noise_func
-
+from ..diffusion import noise_func, get_spike_mask, get_slice_spike_percentage, get_global_spike_percentage
 import numpy as np
-from mriqc.mriqc.qc import get_spike_mask, get_slice_spike_percentage, get_global_spike_percentage
 
 
 class DiffusionData(object):
