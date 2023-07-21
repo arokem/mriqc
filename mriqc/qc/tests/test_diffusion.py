@@ -90,8 +90,6 @@ def test_get_global_spike_percentage(ddata):
 
     assert global_spike_percentage >= 0
     assert global_spike_percentage <= 1
-    data, gtab = ddata.get_data()
-    noise_func(data, gtab)
 
 
 def test_with_shelled_data(ddata):
