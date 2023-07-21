@@ -29,3 +29,7 @@ Image quality metrics for diffusion MRI data
 
 def noise_func(img, gtab):
     pass
+
+
+def noise_func_for_shelled_data(shelled_data, gtab):
+    pass
