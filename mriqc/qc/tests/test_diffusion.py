@@ -21,12 +21,15 @@
 #     https://www.nipreps.org/community/licensing/
 #
 import pytest
+import numpy as np
 import nibabel as nib
 from dipy.core.gradients import gradient_table
 from dipy.data.fetcher import fetch_sherbrooke_3shell
+from dipy.core.gradients import unique_bvals_magnitude, round_bvals
 import os.path as op
 from ..diffusion import noise_func, get_spike_mask, get_slice_spike_percentage, get_global_spike_percentage
 import numpy as np
+
 
 
 class DiffusionData(object):
@@ -39,13 +42,26 @@ class DiffusionData(object):
         fnifti, bval, bvec = [op.join(path, f'HARDI193.{ext}') for
                               ext in ["nii.gz", "bval", "bvec"]]
         img = nib.load(fnifti)
+        data = img.get_fdata()
         gtab = gradient_table(bval, bvec)
-        return img, gtab
+        return data, gtab
+
+    def shelled_data(self):
+        data, gtab = self.get_data()
+        rounded_bvals = round_bvals(gtab.bvals)
+        unique_rounded_bvals = np.unique(rounded_bvals)
+
+        out_data = []
+        for u_bv in unique_rounded_bvals:
+            this = data[..., np.where(rounded_bvals == u_bv)]
+            out_data.append(this)
+        return out_data, gtab
 
 
 @pytest.fixture
 def ddata():
     return DiffusionData()
+
 
 def test_noise_function(ddata):
     img, gtab = ddata.get_fdata()
@@ -76,3 +92,10 @@ def test_get_global_spike_percentage(ddata):
 
     assert global_spike_percentage >= 0
     assert global_spike_percentage <= 1
+    data, gtab = ddata.get_data()
+    noise_func(data, gtab)
+
+
+def test_with_shelled_data(ddata):
+    shelled_data, gtab = ddata.shelled_data()
+    noise_func_for_shelled_data(shelled_data, gtab)

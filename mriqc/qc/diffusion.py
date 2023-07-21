@@ -100,3 +100,6 @@ def get_global_spike_percentage(data, z_threshold=3):
     global_spike_percentage = np.mean(np.ravel(spike_mask))
 
     return global_spike_percentage
+
+def noise_func_for_shelled_data(shelled_data, gtab):
+    pass
