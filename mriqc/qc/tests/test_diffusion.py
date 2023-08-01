@@ -27,7 +27,7 @@ from dipy.core.gradients import gradient_table
 from dipy.data.fetcher import fetch_sherbrooke_3shell
 from dipy.core.gradients import unique_bvals_magnitude, round_bvals
 import os.path as op
-from ..diffusion import noise_func
+from ..diffusion import noise_func, get_spike_mask, get_slice_spike_percentage, get_global_spike_percentage
 
 
 class DiffusionData(object):
@@ -62,8 +62,34 @@ def ddata():
 
 
 def test_noise_function(ddata):
-    data, gtab = ddata.get_data()
-    noise_func(data, gtab)
+    img, gtab = ddata.get_fdata()
+    noise_func(img, gtab)
+
+
+def test_get_spike_mask(ddata):
+    img, gtab = ddata.get_fdata()
+    spike_mask = get_spike_mask(img, 2)
+
+    assert np.min(np.ravel(spike_mask)) == 0
+    assert np.max(np.ravel(spike_mask)) == 1
+    assert spike_mask.shape == img.shape
+
+
+def test_get_slice_spike_percentage(ddata):
+    img, gtab = ddata.get_fdata()
+    slice_spike_percentage = get_slice_spike_percentage(img, 2, .2)
+
+    assert np.min(slice_spike_percentage) >= 0
+    assert np.max(slice_spike_percentage) <= 1
+    assert len(slice_spike_percentage) == img.ndim
+
+
+def test_get_global_spike_percentage(ddata):
+    img, gtab = ddata.get_fdata()
+    global_spike_percentage = get_global_spike_percentage(img, 2)
+
+    assert global_spike_percentage >= 0
+    assert global_spike_percentage <= 1
 
 
 def test_with_shelled_data(ddata):
