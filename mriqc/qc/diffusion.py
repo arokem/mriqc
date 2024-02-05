@@ -32,7 +32,7 @@ Image quality metrics for diffusion MRI data
 def noise_func(img, gtab):
     pass
 
-def get_spike_mask(data, z_threshold=3):
+def get_spike_mask(data, grouping_vals, z_threshold=3):
     """
     Return binary mask of spike/no spike
 
@@ -40,6 +40,8 @@ def get_spike_mask(data, z_threshold=3):
     ----------
     data : numpy array
         Data to be thresholded
+    grouping_vals : numpy array
+        Values by which to group data for thresholding (bvals or full mask)
     z_threshold : :obj:`float`
         Number of standard deviations above the mean to use as spike threshold
 
@@ -47,8 +49,23 @@ def get_spike_mask(data, z_threshold=3):
     ---------
     numpy array
     """
-    threshold = (z_threshold*np.std(np.ravel(data))) + np.mean(np.ravel(data))
-    spike_mask = data > threshold
+
+    threshold_mask = np.zeros(data.shape)
+    gvals = np.unique(grouping_vals) # Not the right function
+    gval_inds = np.where(grouping_vals == gval) # Not the right functions
+
+    if grouping_vals.shape == data.shape:
+        for gval in gvals:
+            gval_data = data[gval_inds]
+            gval_threshold = (z_threshold*np.std(gval_data)) + np.mean(gval_data)
+            threshold_mask[gval_inds] = gval_threshold*np.ones(gval_data.shape)
+    else:
+        for gval in gvals:
+            gval_data = data[...,gval_inds]
+            gval_threshold = (z_threshold*np.std(gval_data)) + np.mean(gval_data)
+            threshold_mask[...,gval_inds] = gval_threshold*np.ones(gval_data.shape)
+
+    spike_mask = data > threshold_mask
 
     return spike_mask
 
