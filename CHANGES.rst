@@ -1,3 +1,177 @@
+23.1.0 (June 14, 2023)
+======================
+A new minor release featuring the new individual reports built with the new
+*NiReports* VRS (visual reports system). This means *MRIQC* now uses the same
+package *fMRIPrep* uses for generating its reports. In addition to that,
+this new release also features *Beta* support for diffusion MRI (dMRI). 
+
+CHANGES
+-------
+
+* FIX: Better handling of BIDS cached indexation (#1121)
+* FIX: Make doctest of ``NumberOfShells`` more reliable (#1122)
+* FIX: Add protection for NaNs and INFs when calculating QI2 (#1112)
+* FIX: ``PlotMosaic`` expects lists, not tuples (#1111)
+* FIX: BIDS database directory handling (#1110)
+* FIX: Remove unused dipy import in the functional interfaces (#1109)
+* FIX: Refine the head mask after removal of FSL BET (#1107)
+* FIX: Inform *SynthStrip* about the desired intraop threads (#1101)
+* FIX: Test broken by #1098 (#1100)
+* FIX: Separate report bootstrap files (anat vs. func) (#1098)
+* FIX: Propagate logging level to subprocesses (#1030)
+* ENH: Incorporate new NiReports' DWI heatmaps (#1119)
+* ENH: More compact of shell-wise summary statistic maps (avg/std) (#1116)
+* ENH: Add a basic DTI fitting into the diffusion workflow (#1115)
+* ENH: MRIQC for DWI (#1113)
+* ENH: Culminate dropping FSL as a dependency (#1108)
+* ENH: Replace FSL FAST with ANTs Atropos for brain tissue segmentation (#1099)
+* ENH: Drop FSL MELODIC (without alternative) (#1106)
+* ENH: Drop FSL BET to estimate the "outskin" (head) mask (#1105)
+* ENH: Drop utilization of "head" mask from template (#1104)
+* ENH: Move templates' probsegs into individual at normalization (#1103)
+* ENH: Improving the resource monitor -- infer PID from process name (#1049) (#1049)
+* ENH: Refactor reports system to use *NiReports* and the general VRS (#1085)
+* MAINT: Move codespell configuration to ``pyproject.toml`` (#1097)
+* MAINT: Update deprecated ``nibabel.spatialimage.get_data()`` calls (#1096)
+
+.. admonition:: Author list for papers based on *MRIQC* 23.0 series
+
+    As described in the `Contributor Guidelines
+    <https://www.nipreps.org/community/CONTRIBUTING/#recognizing-contributions>`__,
+    anyone listed as developer or contributor may write and submit manuscripts
+    about *MRIQC*.
+    To do so, please move the author(s) name(s) to the front of the following list:
+    
+    Zvi Baratz \ :sup:`1`\ ; Christopher J. Markiewicz \ :sup:`2`\ ; Eilidh MacNicol \ :sup:`3`\ ; Dylan Nielson \ :sup:`4`\ ; Jan Varada \ :sup:`5`\ ; Ross W. Blair \ :sup:`2`\ ; Céline Provins \ :sup:`6`\ ; William Triplett \ :sup:`7`\ ; Mathias Goncalves \ :sup:`2`\ ; Nikita Beliy \ :sup:`8`\ ; John A. Lee \ :sup:`9`\ ; Ursula A. Tooley \ :sup:`10`\ ; James D. Kent \ :sup:`11`\ ; Yaroslav O. Halchenko \ :sup:`12`\ ; Bennet Fauber \ :sup:`13`\ ; Taylor Salo \ :sup:`14`\ ; Michael Krause \ :sup:`15`\ ; Pablo Velasco \ :sup:`16`\ ; Thomas Nichols \ :sup:`17`\ ; Adam Huffman \ :sup:`18`\ ; Elodie Savary \ :sup:`6`\ ; Johannes Achtzehn \ :sup:`19`\ ; Joke Durnez \ :sup:`2`\ ; Satrajit S. Ghosh \ :sup:`20`\ ; Asier Erramuzpe \ :sup:`21`\ ; Benjamin Kay \ :sup:`22`\ ; Daniel Birman \ :sup:`2`\ ; McKenzie P. Hagen \ :sup:`23`\ ; Michael G. Clark \ :sup:`24`\ ; Patrick Sadil \ :sup:`25`\ ; Rafael Garcia-Dias \ :sup:`26`\ ; Adam G. Thomas \ :sup:`27`\ ; Russell A. Poldrack \ :sup:`2`\ ; Ariel Rokem \ :sup:`28`\ ; Oscar Esteban \ :sup:`6`\ .
+
+    Affiliations:
+
+      1. Sagol School of Neuroscience, Tel Aviv University, Tel Aviv, Israel
+      2. Department of Psychology, Stanford University, CA, USA
+      3. Department of Neuroimaging, Institute of Psychiatry, Psychology and Neuroscience, King's College London, London, UK
+      4. Section on Clinical and Computational Psychiatry, National Institute of Mental Health, Bethesda, MD, USA
+      5. Functional MRI Facility, National Institute of Mental Health, Bethesda, MD, USA
+      6. Department of Radiology, Lausanne University Hospital and University of Lausanne, Switzerland
+      7. University of Florida: Gainesville, Florida, US
+      8. CRC ULiege, Liege, Belgium
+      9. Quansight, Dublin, Ireland
+      10. Department of Neuroscience, University of Pennsylvania, PA, USA
+      11. Department of Psychology, University of Texas at Austin, TX, USA
+      12. Psychological and Brain Sciences Department, Dartmouth College, NH, USA
+      13. University of Michigan, Ann Arbor, USA
+      14. Department of Psychology, Florida International University, FL, USA
+      15. Max Planck Institute for Human Development, Berlin, Germany
+      16. Center for Brain Imaging, New York University, NY, USA
+      17. Oxford Big Data Institute, University of Oxford, Oxford, GB
+      18. Department of Physics, Imperial College London, London, UK
+      19. Charité Berlin, Berlin, Germany
+      20. McGovern Institute for Brain Research, MIT, MA, USA; and Department of Otolaryngology, Harvard Medical School, MA, USA
+      21. Computational Neuroimaging Lab, BioCruces Health Research Institute
+      22. Washington University School of Medicine, St.Louis, MO, USA
+      23. Psychology Department, University of Washington, Seattle, WA, USA
+      24. National Institutes of Health, USA
+      25. Johns Hopkins Bloomberg School of Public Health, MD, USA
+      26. Institute of Psychiatry, Psychology & Neuroscience, King's College London, London, UK
+      27. Data Science and Sharing Team, National Institute of Mental Health, Bethesda, MD, USA
+      28. The University of Washington eScience Institute, WA, USA
+
+23.0.1 (March 24, 2023)
+=======================
+A hotfix release resolving a reggression introduced with the new optimized indexing.
+
+* FIX: Underspecified regex sets ``BIDSLayout`` to ignore data with sessions (#1094)
+* FIX: Input data has incompatible dimensionality (plotting ICA) (#1082)
+* ENH: Optimize metadata gathering reusing ``BIDSLayout`` db (#1084)
+* DOC : update anatomical example report in documentation (#1088)
+* MAINT: Drop old ``mriqc_plot`` script (#1091)
+
+23.0.0 (March 10, 2023)
+=======================
+The new 23.0.x series include several prominent changes.
+Visualization has been migrated from *MRIQC* and *niworkflows* over to the new *NiReports* project.
+This series include a major bugfix with **the optimization of the indexing** of the input BIDS folder,
+which was taking large times with sizeable datasets.
+Telemetry has also been incorporated with *migas*.
+These new series also involve maintenance housekeeping, and includes some relevant bugfixes.
+
+New contributors
+----------------
+
+* `@arokem <https://github.com/arokem>`__ made their first contribution in `#1040 <https://github.com/nipreps/mriqc/pull/1040>`__
+* `@yarikoptic <https://github.com/yarikoptic>`__ made their first contribution in `#1057 <https://github.com/nipreps/mriqc/pull/1057>`__
+* `@esavary <https://github.com/esavary>`__ made their first contribution in `#1047 <https://github.com/nipreps/mriqc/pull/1047>`__
+
+CHANGES
+-------
+**Full Changelog**: https://github.com/nipreps/mriqc/compare/22.0.6...23.0.0
+
+* FIX: Send metadata extraction to workers (functional workflow) (#1081)
+* FIX: Plot coronal as main plain for mosaic of rodent images (#1027)
+* FIX: Address non-empty take from empty axes (anatomical IQMs) (#1077)
+* FIX: Uniformize building workflow message (anat vs. func) (#1072)
+* FIX: Move telemetry atexit into entrypoint func (#1067)
+* FIX: Preempt PyBIDS to spend time indexing non-BIDS folders (#1050)
+* FIX: Update T1w metrics (#1063)
+* FIX: Resource monitor would not ever start tracking (#1051)
+* ENH: Add DataLad getter to inputs of functional workflows (#1071)
+* ENH: Add migas telemetry (#1036)
+* ENH: Add codespell automation: config, action, and typos fixed (#1057)
+* MAINT: Update *NiReports* calls to upcoming interfaces API (#1078)
+* MAINT: Pacify codespell (#1080)
+* MAINT: Conclude porting of reportlets into *NiReports* (#1068)
+* MAINT: Migrate to hatchling (#1070)
+* MAINT: Pin PyBIDS 0.15.6 (culminating #1050) (#1069)
+* MAINT: Update niworkflows pin to support newer ANTs releases (#1047)
+* MAINT: Fix minor aspects of WebAPI deployment on CircleCI (#1064)
+* MAINT: Update CircleCI executor and use built-in docker-compose (#1061)
+* MAINT: Rotate CircleCI secrets and setup up org-level context (#1046)
+* DOC: Update documentation with the new carpet plot (#1045)
+* DOC: Complete the documentation of ``summary_stats()`` (#1044)
+* DOC: Fixes a couple of broken links to the *nipype* documentation (#1040)
+
+.. admonition:: Author list for papers based on *MRIQC* 23.0 series
+
+    As described in the `Contributor Guidelines
+    <https://www.nipreps.org/community/CONTRIBUTING/#recognizing-contributions>`__,
+    anyone listed as developer or contributor may write and submit manuscripts
+    about *MRIQC*.
+    To do so, please move the author(s) name(s) to the front of the following list:
+
+    Zvi Baratz \ :sup:`1`\ ; Christopher J. Markiewicz \ :sup:`2`\ ; Eilidh MacNicol \ :sup:`3`\ ; Dylan Nielson \ :sup:`4`\ ; Jan Varada \ :sup:`5`\ ; Ross W. Blair \ :sup:`2`\ ; Céline Provins \ :sup:`6`\ ; William Triplett \ :sup:`7`\ ; Mathias Goncalves \ :sup:`2`\ ; Nikita Beliy \ :sup:`8`\ ; John A. Lee \ :sup:`9`\ ; Ursula A. Tooley \ :sup:`10`\ ; James D. Kent \ :sup:`11`\ ; Yaroslav O. Halchenko \ :sup:`12`\ ; Bennet Fauber \ :sup:`13`\ ; Taylor Salo \ :sup:`14`\ ; Michael Krause \ :sup:`15`\ ; Pablo Velasco \ :sup:`16`\ ; Thomas Nichols \ :sup:`17`\ ; Adam Huffman \ :sup:`18`\ ; Johannes Achtzehn \ :sup:`19`\ ; Joke Durnez \ :sup:`2`\ ; Satrajit S. Ghosh \ :sup:`20`\ ; Asier Erramuzpe \ :sup:`21`\ ; Benjamin Kay \ :sup:`22`\ ; Daniel Birman \ :sup:`2`\ ; Elodie Savary \ :sup:`23`\ ; McKenzie P. Hagen \ :sup:`24`\ ; Michael G. Clark \ :sup:`25`\ ; Patrick Sadil \ :sup:`26`\ ; Rafael Garcia-Dias \ :sup:`27`\ ; Adam G. Thomas \ :sup:`28`\ ; Russell A. Poldrack \ :sup:`2`\ ; Ariel Rokem \ :sup:`29`\ ; Oscar Esteban \ :sup:`30`\ .
+
+    Affiliations:
+
+      1. Sagol School of Neuroscience, Tel Aviv University, Tel Aviv, Israel
+      2. Department of Psychology, Stanford University, CA, USA
+      3. Department of Neuroimaging, Institute of Psychiatry, Psychology and Neuroscience, King's College London, London, UK
+      4. Section on Clinical and Computational Psychiatry, National Institute of Mental Health, Bethesda, MD, USA
+      5. Functional MRI Facility, National Institute of Mental Health, Bethesda, MD, USA
+      6. Lausanne University Hospital and University of Lausanne, Lausanne, Switzerland
+      7. University of Florida: Gainesville, Florida, US
+      8. CRC ULiege, Liege, Belgium
+      9. Quansight, Dublin, Ireland
+      10. Department of Neuroscience, University of Pennsylvania, PA, USA
+      11. Department of Psychology, University of Texas at Austin, TX, USA
+      12. Psychological and Brain Sciences Department, Dartmouth College, NH, USA
+      13. University of Michigan, Ann Arbor, USA
+      14. Department of Psychology, Florida International University, FL, USA
+      15. Max Planck Institute for Human Development, Berlin, Germany
+      16. Center for Brain Imaging, New York University, NY, USA
+      17. Oxford Big Data Institute, University of Oxford, Oxford, GB
+      18. Department of Physics, Imperial College London, London, UK
+      19. Charité Berlin, Berlin, Germany
+      20. McGovern Institute for Brain Research, MIT, MA, USA; and Department of Otolaryngology, Harvard Medical School, MA, USA
+      21. Computational Neuroimaging Lab, BioCruces Health Research Institute
+      22. Washington University School of Medicine, St.Louis, MO, USA
+      23. Department of Radiology, Lausanne University Hospital and University of Lausanne, Switzerland
+      24. Psychology Department, University of Washington, Seattle, WA, USA
+      25. National Institutes of Health, USA
+      26. Johns Hopkins Bloomberg School of Public Health, MD, USA
+      27. Institute of Psychiatry, Psychology & Neuroscience, King's College London, London, UK
+      28. Data Science and Sharing Team, National Institute of Mental Health, Bethesda, MD, USA
+      29. The University of Washington eScience Institute, WA, USA
+      30. Department of Radiology, Lausanne University Hospital and University of Lausanne
+
 22.0.6 (August 24, 2022)
 ========================
 A hotfix release partially rolling-back the previous fix #1025.
@@ -106,7 +280,7 @@ and @jAchtzehn for their contributions.
 * MAINT: Refactor ``Dockerfile`` using new miniconda image (#974)
 * MAINT: Outsource the classifier into nipreps/mriqc-learn (#973)
 * MAINT: Update ``CONTRIBUTORS.md`` (#953)
-* MAINT: Update contributer location (#952)
+* MAINT: Update contributor location (#952)
 * MAINT: Updates to ``CONTRIBUTORS.md`` file
 * MAINT: Revise Docker image settings & CircleCI (#937)
 * MAINT: Finalize transfer to ``nipreps`` organization (#936)

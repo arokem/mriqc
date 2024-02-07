@@ -103,12 +103,7 @@ set i 0
             if exc.errno != EEXIST:
                 raise exc
 
-        niifile = op.join(tmp_sub, "%s.nii.gz") % subid
-        ref_file = op.join(sub_path, "mri", "T1.mgz")
-        sp.call(
-            ["mri_convert", op.join(sub_path, "mri", "norm.mgz"), niifile], cwd=tmp_sub
-        )
-        data = nb.load(niifile).get_data()
+        data = nb.load(op.join(sub_path, "mri", "norm.mgz")).get_fdata()
         data[data > 0] = 1
 
         # Compute brain bounding box
@@ -118,12 +113,10 @@ set i 0
         center = np.average([bbox_min, bbox_max], axis=0)
 
         if opts.hist_eq:
-            modnii = op.join(tmp_sub, "%s.nii.gz" % subid)
             ref_file = op.join(tmp_sub, "%s.mgz" % subid)
-            img = nb.load(niifile)
-            data = exposure.equalize_adapthist(img.get_data(), clip_limit=0.03)
-            nb.Nifti1Image(data, img.affine, img.header).to_filename(modnii)
-            sp.call(["mri_convert", modnii, ref_file], cwd=tmp_sub)
+            img = nb.load(op.join(sub_path, "mri", "norm.mgz"))
+            data = exposure.equalize_adapthist(img.get_fdata(), clip_limit=0.03)
+            nb.MGHImage(data, img.affine, img.header).to_filename(ref_file)
 
         if not opts.zoom:
             # Export tiffs for left hemisphere
@@ -137,7 +130,7 @@ set i 0
                 tclfp.write("    SetSlice $slice\n")
                 tclfp.write("    RedrawScreen\n")
                 tclfp.write(
-                    '    SaveTIFF [format "%s/%s-' % (tmp_sub, subid)
+                    f'    SaveTIFF [format "{tmp_sub}/{subid}-'
                     + '%03d.tif" $i]\n'
                 )
                 tclfp.write("    incr i\n")
@@ -167,8 +160,8 @@ set i 0
                     "10",
                     "-loop",
                     "0",
-                    "%s/%s-*.tif" % (tmp_sub, subid),
-                    "%s/%s.gif" % (out_dir, subid),
+                    f"{tmp_sub}/{subid}-*.tif",
+                    f"{out_dir}/{subid}.gif",
                 ]
             )
 
@@ -243,8 +236,8 @@ set i 0
                     "10",
                     "-loop",
                     "0",
-                    "%s/%s-lh-*.tif" % (tmp_sub, subid),
-                    "%s/%s-lh.gif" % (out_dir, subid),
+                    f"{tmp_sub}/{subid}-lh-*.tif",
+                    f"{out_dir}/{subid}-lh.gif",
                 ]
             )
             sp.call(
@@ -254,8 +247,8 @@ set i 0
                     "10",
                     "-loop",
                     "0",
-                    "%s/%s-rh-*.tif" % (tmp_sub, subid),
-                    "%s/%s-rh.gif" % (out_dir, subid),
+                    f"{tmp_sub}/{subid}-rh-*.tif",
+                    f"{out_dir}/{subid}-rh.gif",
                 ]
             )
 
@@ -275,10 +268,10 @@ def _xvfb_run(wait=5, server_args="-screen 0, 1600x1200x24", logs=None):
     return [
         "xvfb-run",
         "-a",  # automatically get a free server number
-        "-f {}.out".format(logs),
-        "-e {}.err".format(logs),
-        "--wait={:d}".format(wait),
-        '--server-args="{}"'.format(server_args),
+        f"-f {logs}.out",
+        f"-e {logs}.err",
+        f"--wait={wait:d}",
+        f'--server-args="{server_args}"',
     ]
 
 

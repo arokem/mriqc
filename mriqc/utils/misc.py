@@ -31,12 +31,13 @@ import pandas as pd
 try:
     from collections.abc import MutableMapping
 except ImportError:
-    from collections import MutableMapping
+    from collections.abc import MutableMapping
 
 IMTYPES = {
     "T1w": "anat",
     "T2w": "anat",
     "bold": "func",
+    "dwi": "dwi",
 }
 
 BIDS_COMP = OrderedDict(
@@ -82,7 +83,7 @@ def reorder_csv(csv_file, out_file=None):
         # The column does not exist
         pass
 
-    for col in ["scan", "session", "subject"]:
+    for col in ("scan", "session", "subject"):
         cols.remove(col)
         cols.insert(0, col)
 
@@ -104,9 +105,9 @@ def rotate_files(fname):
     if not op.isfile(fname):
         return
 
-    prev = glob.glob("{}.*{}".format(name, ext))
+    prev = glob.glob(f"{name}.*{ext}")
     prev.insert(0, fname)
-    prev.append("{0}.{1:d}{2}".format(name, len(prev) - 1, ext))
+    prev.append(f"{name}.{len(prev) - 1:d}{ext}")
     for i in reversed(list(range(1, len(prev)))):
         os.rename(prev[i - 1], prev[i])
 
@@ -114,15 +115,15 @@ def rotate_files(fname):
 def bids_path(subid, sesid=None, runid=None, prefix=None, out_path=None, ext="json"):
     import os.path as op
 
-    fname = "{}".format(subid)
+    fname = f"{subid}"
     if prefix is not None:
         if not prefix.endswith("_"):
             prefix += "_"
         fname = prefix + fname
     if sesid is not None:
-        fname += "_ses-{}".format(sesid)
+        fname += f"_ses-{sesid}"
     if runid is not None:
-        fname += "_run-{}".format(runid)
+        fname += f"_run-{runid}"
 
     if out_path is not None:
         fname = op.join(out_path, fname)
@@ -139,11 +140,11 @@ def generate_pred(derivatives_dir, output_dir, mod):
         return None
 
     # If some were found, generate the CSV file and group report
-    jsonfiles = list(output_dir.glob("sub-*/**/%s/sub-*_%s.json" % (IMTYPES[mod], mod)))
+    jsonfiles = list(output_dir.glob(f"sub-*/**/{IMTYPES[mod]}/sub-*_{mod}.json"))
     if not jsonfiles:
         return None
 
-    headers = list(BIDS_COMP.keys()) + ["mriqc_pred"]
+    headers = list(BIDS_COMP) + ["mriqc_pred"]
     predictions = {k: [] for k in headers}
 
     for jsonfile in jsonfiles:
@@ -156,12 +157,12 @@ def generate_pred(derivatives_dir, output_dir, mod):
         for k in headers:
             predictions[k].append(data.pop(k, None))
 
-    dataframe = pd.DataFrame(predictions).sort_values(by=list(BIDS_COMP.keys()))
+    dataframe = pd.DataFrame(predictions).sort_values(by=list(BIDS_COMP))
 
     # Drop empty columns
     dataframe.dropna(axis="columns", how="all", inplace=True)
 
-    bdits_cols = list(set(BIDS_COMP.keys()) & set(dataframe.columns.ravel()))
+    bdits_cols = list(set(BIDS_COMP) & set(dataframe.columns.ravel()))
 
     # Drop duplicates
     dataframe.drop_duplicates(bdits_cols, keep="last", inplace=True)
@@ -178,7 +179,7 @@ def generate_tsv(output_dir, mod):
 
     # If some were found, generate the CSV file and group report
     out_tsv = output_dir / ("group_%s.tsv" % mod)
-    jsonfiles = list(output_dir.glob("sub-*/**/%s/sub-*_%s.json" % (IMTYPES[mod], mod)))
+    jsonfiles = list(output_dir.glob(f"sub-*/**/{IMTYPES[mod]}/sub-*_{mod}.json"))
     if not jsonfiles:
         return None, out_tsv
 
@@ -207,8 +208,7 @@ def generate_tsv(output_dir, mod):
 
 
 def _read_and_save(in_file):
-    data = json.loads(Path(in_file).read_text())
-    return data if data else None
+    return json.loads(Path(in_file).read_text()) or None
 
 
 def _flatten(in_dict, parent_key="", sep="_"):

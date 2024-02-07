@@ -20,7 +20,7 @@
 #
 #     https://www.nipreps.org/community/licensing/
 #
-from builtins import zip
+from __future__ import annotations
 from os import path as op
 
 import nibabel as nb
@@ -31,11 +31,15 @@ from mriqc.utils.misc import _flatten_dict
 from nipype.interfaces.base import (
     BaseInterfaceInputSpec,
     File,
+    InputMultiObject,
+    isdefined,
     SimpleInterface,
     TraitedSpec,
-    isdefined,
     traits,
+    Undefined,
 )
+from nipype.utils.misc import normalize_mc_params
+import pandas as pd
 
 
 class FunctionalQCInputSpec(BaseInterfaceInputSpec):
@@ -57,13 +61,9 @@ class FunctionalQCInputSpec(BaseInterfaceInputSpec):
         mandatory=True,
         desc="motion parameters for FD computation",
     )
-    fd_thres = traits.Float(
-        0.2, usedefault=True, desc="motion threshold for FD computation"
-    )
+    fd_thres = traits.Float(0.2, usedefault=True, desc="motion threshold for FD computation")
     in_dvars = File(exists=True, mandatory=True, desc="input file containing DVARS")
-    in_fwhm = traits.List(
-        traits.Float, mandatory=True, desc="smoothness estimated with AFNI"
-    )
+    in_fwhm = traits.List(traits.Float, mandatory=True, desc="smoothness estimated with AFNI")
 
 
 class FunctionalQCOutputSpec(TraitedSpec):
@@ -95,20 +95,17 @@ class FunctionalQC(SimpleInterface):
     def _run_interface(self, runtime):
         # Get the mean EPI data and get it ready
         epinii = nb.load(self.inputs.in_epi)
-        epidata = np.nan_to_num(epinii.get_data())
-        epidata = epidata.astype(np.float32)
+        epidata = np.nan_to_num(np.float32(epinii.dataobj))
         epidata[epidata < 0] = 0
 
         # Get EPI data (with mc done) and get it ready
         hmcnii = nb.load(self.inputs.in_hmc)
-        hmcdata = np.nan_to_num(hmcnii.get_data())
-        hmcdata = hmcdata.astype(np.float32)
+        hmcdata = np.nan_to_num(np.float32(hmcnii.dataobj))
         hmcdata[hmcdata < 0] = 0
 
         # Get brain mask data
         msknii = nb.load(self.inputs.in_mask)
         mskdata = np.asanyarray(msknii.dataobj) > 0
-        mskdata = mskdata.astype(np.uint8)
         if np.sum(mskdata) < 100:
             raise RuntimeError(
                 "Detected less than 100 voxels belonging to the brain mask. "
@@ -116,15 +113,14 @@ class FunctionalQC(SimpleInterface):
             )
 
         # Summary stats
-        stats = summary_stats(epidata, mskdata, erode=True)
+        rois = {"fg": mskdata.astype(np.uint8), "bg": (~mskdata).astype(np.uint8)}
+        stats = summary_stats(epidata, rois)
         self._results["summary"] = stats
 
         # SNR
-        self._results["snr"] = snr(
-            stats["fg"]["median"], stats["fg"]["stdv"], stats["fg"]["n"]
-        )
+        self._results["snr"] = snr(stats["fg"]["median"], stats["fg"]["stdv"], stats["fg"]["n"])
         # FBER
-        self._results["fber"] = fber(epidata, mskdata)
+        self._results["fber"] = fber(epidata, mskdata.astype(np.uint8))
         # EFC
         self._results["efc"] = efc(epidata)
         # GSR
@@ -135,24 +131,22 @@ class FunctionalQC(SimpleInterface):
             epidir = [self.inputs.direction]
 
         for axis in epidir:
-            self._results["gsr"][axis] = gsr(epidata, mskdata, direction=axis)
+            self._results["gsr"][axis] = gsr(epidata, mskdata.astype(np.uint8), direction=axis)
 
         # DVARS
-        dvars_avg = np.loadtxt(
-            self.inputs.in_dvars, skiprows=1, usecols=list(range(3))
-        ).mean(axis=0)
+        dvars_avg = np.loadtxt(self.inputs.in_dvars, skiprows=1, usecols=list(range(3))).mean(
+            axis=0
+        )
         dvars_col = ["std", "nstd", "vstd"]
-        self._results["dvars"] = {
-            key: float(val) for key, val in zip(dvars_col, dvars_avg)
-        }
+        self._results["dvars"] = {key: float(val) for key, val in zip(dvars_col, dvars_avg)}
 
         # tSNR
-        tsnr_data = nb.load(self.inputs.in_tsnr).get_data()
-        self._results["tsnr"] = float(np.median(tsnr_data[mskdata > 0]))
+        tsnr_data = nb.load(self.inputs.in_tsnr).get_fdata()
+        self._results["tsnr"] = float(np.median(tsnr_data[mskdata]))
 
         # FD
         fd_data = np.loadtxt(self.inputs.in_fd, skiprows=1)
-        num_fd = np.float((fd_data > self.inputs.fd_thres).sum())
+        num_fd = (fd_data > self.inputs.fd_thres).sum()
         self._results["fd"] = {
             "mean": float(fd_data.mean()),
             "num": int(num_fd),
@@ -160,9 +154,7 @@ class FunctionalQC(SimpleInterface):
         }
 
         # FWHM
-        fwhm = np.array(self.inputs.in_fwhm[:3]) / np.array(
-            hmcnii.header.get_zooms()[:3]
-        )
+        fwhm = np.array(self.inputs.in_fwhm[:3]) / np.array(hmcnii.header.get_zooms()[:3])
         self._results["fwhm"] = {
             "x": float(fwhm[0]),
             "y": float(fwhm[1]),
@@ -196,7 +188,7 @@ class FunctionalQC(SimpleInterface):
 
 class SpikesInputSpec(BaseInterfaceInputSpec):
     in_file = File(exists=True, mandatory=True, desc="input fMRI dataset")
-    in_mask = File(exists=True, desc="brain mask")
+    in_mask = File(exists=True, mandatory=True, desc="brain mask")
     invert_mask = traits.Bool(False, usedefault=True, desc="invert mask")
     no_zscore = traits.Bool(False, usedefault=True, desc="do not zscore")
     detrend = traits.Bool(True, usedefault=True, desc="do detrend")
@@ -233,7 +225,7 @@ class Spikes(SimpleInterface):
 
     def _run_interface(self, runtime):
         func_nii = nb.load(self.inputs.in_file)
-        func_data = func_nii.get_data()
+        func_data = func_nii.get_fdata()
         func_shape = func_data.shape
         ntsteps = func_shape[-1]
         tr = func_nii.header.get_zooms()[-1]
@@ -253,12 +245,9 @@ class Spikes(SimpleInterface):
             func_data = np.zeros(func_shape)
             func_data[..., nskip:] = clean_data.reshape(new_shape)
 
-        if not isdefined(self.inputs.in_mask):
-            _, mask_data, _ = auto_mask(func_data, nskip=self.inputs.skip_frames)
-        else:
-            mask_data = nb.load(self.inputs.in_mask).get_data()
-            mask_data[..., :nskip] = 0
-            mask_data = np.stack([mask_data] * ntsteps, axis=-1)
+        mask_data = np.bool_(nb.load(self.inputs.in_mask).dataobj)
+        mask_data[..., :nskip] = 0
+        mask_data = np.stack([mask_data] * ntsteps, axis=-1)
 
         if not self.inputs.invert_mask:
             brain = np.ma.array(func_data, mask=(mask_data != 1))
@@ -284,6 +273,223 @@ class Spikes(SimpleInterface):
         return runtime
 
 
+class _SelectEchoInputSpec(BaseInterfaceInputSpec):
+    in_files = InputMultiObject(File(exists=True), mandatory=True, desc="input EPI file(s)")
+    metadata = InputMultiObject(traits.Dict(), desc="sidecar JSON files corresponding to in_files")
+    te_reference = traits.Float(0.030, usedefault=True, desc="reference SE-EPI echo time")
+
+
+class _SelectEchoOutputSpec(TraitedSpec):
+    out_file = File(desc="selected echo")
+    echo_index = traits.Int(desc="index of the selected echo")
+    is_multiecho = traits.Bool(desc="whether it is a multiecho dataset")
+
+
+class SelectEcho(SimpleInterface):
+    """
+    Computes anatomical :abbr:`QC (Quality Control)` measures on the
+    structural image given as input
+
+    """
+
+    input_spec = _SelectEchoInputSpec
+    output_spec = _SelectEchoOutputSpec
+
+    def _run_interface(self, runtime):
+        (
+            self._results["out_file"],
+            self._results["echo_index"],
+        ) = select_echo(
+            self.inputs.in_files,
+            te_echos=(
+                _get_echotime(self.inputs.metadata) if isdefined(self.inputs.metadata)
+                else None
+            ),
+            te_reference=self.inputs.te_reference,
+        )
+        self._results["is_multiecho"] = self._results["echo_index"] != -1
+        return runtime
+
+
+class GatherTimeseriesInputSpec(TraitedSpec):
+    dvars = File(exists=True, mandatory=True, desc='file containing DVARS')
+    fd = File(exists=True, mandatory=True, desc='input framewise displacement')
+    mpars = File(exists=True, mandatory=True, desc='input motion parameters')
+    mpars_source = traits.Enum(
+        "FSL",
+        "AFNI",
+        "SPM",
+        "FSFAST",
+        "NIPY",
+        desc="Source of movement parameters",
+        mandatory=True,
+    )
+    outliers = File(
+        exists=True,
+        mandatory=True,
+        desc="input file containing timeseries of AFNI's outlier count")
+    quality = File(
+        exists=True,
+        mandatory=True,
+        desc="input file containing AFNI's Quality Index")
+
+
+class GatherTimeseriesOutputSpec(TraitedSpec):
+    timeseries_file = File(desc='output confounds file')
+    timeseries_metadata = traits.Dict(desc='Metadata dictionary describing columns')
+
+
+class GatherTimeseries(SimpleInterface):
+    """
+    Gather quality metrics that are timeseries into one TSV file
+
+    """
+    input_spec = GatherTimeseriesInputSpec
+    output_spec = GatherTimeseriesOutputSpec
+
+    def _run_interface(self, runtime):
+
+        # motion parameters
+        mpars = np.apply_along_axis(
+            func1d=normalize_mc_params,
+            axis=1,
+            arr=np.loadtxt(self.inputs.mpars),  # mpars is N_t x 6
+            source=self.inputs.mpars_source,
+        )
+        timeseries = pd.DataFrame(
+            mpars,
+            columns=[
+                "trans_x",
+                "trans_y",
+                "trans_z",
+                "rot_x",
+                "rot_y",
+                "rot_z"
+            ])
+
+        # DVARS
+        dvars = pd.read_csv(
+            self.inputs.dvars,
+            delim_whitespace=True,
+            skiprows=1,  # column names have spaces
+            header=None,
+            names=["dvars_std", "dvars_nstd", "dvars_vstd"])
+        dvars.index = pd.RangeIndex(1, timeseries.index.max() + 1)
+
+        # FD
+        fd = pd.read_csv(
+            self.inputs.fd,
+            delim_whitespace=True,
+            header=0,
+            names=["framewise_displacement"])
+        fd.index = pd.RangeIndex(1, timeseries.index.max() + 1)
+
+        # AQI
+        aqi = pd.read_csv(
+            self.inputs.quality,
+            delim_whitespace=True,
+            header=None,
+            names=["aqi"])
+
+        # Outliers
+        aor = pd.read_csv(
+            self.inputs.outliers,
+            delim_whitespace=True,
+            header=None,
+            names=["aor"])
+
+        timeseries = pd.concat((timeseries, dvars, fd, aqi, aor), axis=1)
+
+        timeseries_file = op.join(runtime.cwd, "timeseries.tsv")
+
+        timeseries.to_csv(timeseries_file, sep='\t', index=False, na_rep='n/a')
+
+        self._results['timeseries_file'] = timeseries_file
+        self._results['timeseries_metadata'] = _build_timeseries_metadata()
+        return runtime
+
+
+def _build_timeseries_metadata():
+    return {
+        "trans_x": {
+            "LongName": "Translation Along X Axis",
+            "Description": "Estimated Motion Parameter",
+            "Units": "mm"
+        },
+        "trans_y": {
+            "LongName": "Translation Along Y Axis",
+            "Description": "Estimated Motion Parameter",
+            "Units": "mm"
+        },
+        "trans_z": {
+            "LongName": "Translation Along Z Axis",
+            "Description": "Estimated Motion Parameter",
+            "Units": "mm",
+        },
+        "rot_x": {
+            "LongName": "Rotation Around X Axis",
+            "Description": "Estimated Motion Parameter",
+            "Units": "rad"
+        },
+        "rot_y": {
+            "LongName": "Rotation Around X Axis",
+            "Description": "Estimated Motion Parameter",
+            "Units": "rad"
+        },
+        "rot_z": {
+            "LongName": "Rotation Around X Axis",
+            "Description": "Estimated Motion Parameter",
+            "Units": "rad"
+        },
+        "dvars_std": {
+            "LongName": "Derivative of RMS Variance over Voxels, Standardized",
+            "Description": (
+                "Indexes the rate of change of BOLD signal across"
+                "the entire brain at each frame of data, normalized with the"
+                "standard deviation of the temporal difference time series"
+            )
+        },
+        "dvars_nstd": {
+            "LongName": (
+                "Derivative of RMS Variance over Voxels,"
+                "Non-Standardized"
+            ),
+            "Description": (
+                "Indexes the rate of change of BOLD signal across"
+                "the entire brain at each frame of data, not normalized."
+            )
+        },
+        "dvars_vstd": {
+            "LongName": "Derivative of RMS Variance over Voxels, Standardized",
+            "Description": (
+                "Indexes the rate of change of BOLD signal across"
+                "the entire brain at each frame of data, normalized across"
+                "time by that voxel standard deviation across time,"
+                "before computing the RMS of the temporal difference"
+            )
+        },
+        "framewise_displacement": {
+            "LongName": "Framewise Displacement",
+            "Description": (
+                "A quantification of the estimated bulk-head"
+                "motion calculated using formula proposed by Power (2012)"
+            ),
+            "Units": "mm"
+        },
+        "aqi": {
+            "LongName": "AFNI's Quality Index",
+            "Description": "Mean quality index as computed by AFNI's 3dTqual"
+        },
+        "aor": {
+            "LongName": "AFNI's Fraction of Outliers per Volume",
+            "Description": (
+                "Mean fraction of outliers per fMRI volume as"
+                "given by AFNI's 3dToutcount"
+            )
+        }
+    }
+
+
 def find_peaks(data):
     t_z = [data[:, :, i, :].mean(axis=0).mean(axis=0) for i in range(data.shape[2])]
     return t_z
@@ -307,47 +513,97 @@ def find_spikes(data, spike_thresh):
     return spike_inds, t_z
 
 
-def auto_mask(data, raw_d=None, nskip=3, mask_bad_end_vols=False):
-    from dipy.segment.mask import median_otsu
-
-    mn = data[:, :, :, nskip:].mean(3)
-    _, mask = median_otsu(mn, 3, 2)  # oesteban: masked_data was not used
-    mask = np.concatenate(
-        (
-            np.tile(True, (data.shape[0], data.shape[1], data.shape[2], nskip)),
-            np.tile(np.expand_dims(mask == 0, 3), (1, 1, 1, data.shape[3] - nskip)),
-        ),
-        axis=3,
-    )
-    mask_vols = np.zeros((mask.shape[-1]), dtype=int)
-    if mask_bad_end_vols:
-        # Some runs have corrupt volumes at the end (e.g., mux scans that are stopped
-        # prematurely). Mask those too.
-        # But... motion correction might have interpolated the empty slices such that
-        # they aren't exactly zero.
-        # So use the raw data to find these bad volumes.
-        # 2015.10.29 RFD: this caused problems with some non-mux EPI scans that (inexplicably)
-        # have empty slices at the top of the brain. So we'll disable it for
-        # now.
-        if raw_d is None:
-            slice_max = data.max(0).max(0)
-        else:
-            slice_max = raw_d.max(0).max(0)
-
-        bad = np.any(slice_max == 0, axis=0)
-        # We don't want to miss a bad volume somewhere in the middle,
-        # as that could be a valid artifact.
-        # So, only mask bad vols that are contiguous to the end.
-        mask_vols = np.array([np.all(bad[i:]) for i in range(bad.shape[0])])
-    # Mask out the skip volumes at the beginning
-    mask_vols[0:nskip] = True
-    mask[..., mask_vols] = True
-    brain = np.ma.masked_array(data, mask=mask)
-    good_vols = np.logical_not(mask_vols)
-    return brain, mask, good_vols
-
-
 def _robust_zscore(data):
-    return (data - np.atleast_2d(np.median(data, axis=1)).T) / np.atleast_2d(
-        data.std(axis=1)
-    ).T
+    return (data - np.atleast_2d(np.median(data, axis=1)).T) / np.atleast_2d(data.std(axis=1)).T
+
+
+def select_echo(
+    in_files: str | list[str],
+    te_echos: list[float | Undefined | None] | None = None,
+    te_reference: float = 0.030,
+) -> str:
+    """
+    Select the echo file with the closest echo time to the reference echo time.
+
+    Used to grab the echo file when processing multi-echo data through workflows
+    that only accept a single file.
+
+    Parameters
+    ----------
+    in_files : :obj:`str` or :obj:`list`
+        A single filename or a list of filenames.
+    te_echos : :obj:`list` of :obj:`float`
+        List of echo times corresponding to each file.
+        If not a number (typically, a :obj:`~nipype.interfaces.base.Undefined`),
+        the function selects the second echo.
+    te_reference : float, optional
+        Reference echo time used to find the closest echo time.
+
+    Returns
+    -------
+    str
+        The selected echo file.
+
+    Examples
+    --------
+    >>> select_echo("single-echo.nii.gz")
+    ('single-echo.nii.gz', -1)
+
+    >>> select_echo(["single-echo.nii.gz"])
+    ('single-echo.nii.gz', -1)
+
+    >>> select_echo(
+    ...     [f"echo{n}.nii.gz" for n in range(1,7)],
+    ... )
+    ('echo2.nii.gz', 1)
+
+    >>> select_echo(
+    ...     [f"echo{n}.nii.gz" for n in range(1,7)],
+    ...     te_echos=[12.5, 28.5, 34.2, 45.0, 56.1, 68.4],
+    ...     te_reference=33.1,
+    ... )
+    ('echo3.nii.gz', 2)
+
+    >>> select_echo(
+    ...     [f"echo{n}.nii.gz" for n in range(1,7)],
+    ...     te_echos=[12.5, 28.5, 34.2, 45.0, 56.1],
+    ...     te_reference=33.1,
+    ... )
+    ('echo2.nii.gz', 1)
+
+    >>> select_echo(
+    ...     [f"echo{n}.nii.gz" for n in range(1,7)],
+    ...     te_echos=[12.5, 28.5, 34.2, 45.0, 56.1, None],
+    ...     te_reference=33.1,
+    ... )
+    ('echo2.nii.gz', 1)
+
+    """
+    if not isinstance(in_files, (list, tuple)):
+        return in_files, -1
+
+    if len(in_files) == 1:
+        return in_files[0], -1
+
+    import numpy as np
+
+    n_echos = len(in_files)
+    if te_echos is not None and len(te_echos) == n_echos:
+        try:
+            index = np.argmin(np.abs(np.array(te_echos) - te_reference))
+            return in_files[index], index
+        except TypeError:
+            pass
+
+    return in_files[1], 1
+
+
+def _get_echotime(inlist):
+    if isinstance(inlist, list):
+        retval = [_get_echotime(el) for el in inlist]
+        return retval[0] if len(retval) == 1 else retval
+
+    echo_time = inlist.get("EchoTime", None) if inlist else None
+
+    if echo_time:
+        return float(echo_time)

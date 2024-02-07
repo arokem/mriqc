@@ -28,7 +28,7 @@ Settings are passed across processes via filesystem, and a copy of the settings 
 each run and subject is left under
 ``<output_dir>/sub-<participant_id>/log/<run_unique_id>/mriqc.toml``.
 Settings are stored using :abbr:`ToML (Tom's Markup Language)`.
-The module has a :py:func:`~mriqc.config.to_filename` function to allow writting out
+The module has a :py:func:`~mriqc.config.to_filename` function to allow writing out
 the settings to hard disk in *ToML* format, which looks like:
 
 .. literalinclude:: ../mriqc/data/config-example.toml
@@ -130,6 +130,8 @@ if not any(
 logging.addLevelName(25, "IMPORTANT")  # Add a new level between INFO and WARNING
 logging.addLevelName(15, "VERBOSE")  # Add a new level between INFO and DEBUG
 
+SUPPORTED_SUFFIXES = ("T1w", "T2w", "bold", "dwi")
+
 DEFAULT_MEMORY_MIN_GB = 0.01
 DSA_MESSAGE = """\
 IMPORTANT: Anonymized quality metrics (IQMs) will be submitted to MRIQC's metrics \
@@ -199,6 +201,11 @@ try:
         _memory_gb = float(_mem_str) / (1024.0**3)
 except Exception:
     pass
+
+file_path: Path = None
+"""
+Path to configuration file.
+"""
 
 
 class _Config:
@@ -350,8 +357,12 @@ class execution(_Config):
     """An existing path to the dataset, which must be BIDS-compliant."""
     bids_database_dir = None
     """Path to the directory containing SQLite database indices for the input BIDS dataset."""
+    bids_database_wipe = False
+    """Wipe out previously existing BIDS indexing caches, forcing re-indexing."""
     bids_description_hash = None
     """Checksum (SHA256) of the ``dataset_description.json`` of the BIDS dataset."""
+    bids_filters = None
+    """A dictionary describing custom BIDS input filter using PyBIDS."""
     cwd = os.getcwd()
     """Current working directory."""
     debug = False
@@ -363,7 +374,7 @@ class execution(_Config):
     echo_id = None
     """Select a particular echo for multi-echo EPI datasets."""
     float32 = True
-    """Cast the input data to float32 if it's represented whith higher precision."""
+    """Cast the input data to float32 if it's represented with higher precision."""
     layout = None
     """A :py:class:`~bids.layout.BIDSLayout` object, see :py:func:`init`."""
     log_dir = None
@@ -374,6 +385,8 @@ class execution(_Config):
     """Filter input dataset by MRI type."""
     no_sub = False
     """Turn off submission of anonymized quality metrics to Web API."""
+    notrack = False
+    """Disable the sharing of usage information with developers."""
     output_dir = None
     """Folder where derivatives will be stored."""
     participant_label = None
@@ -386,7 +399,7 @@ class execution(_Config):
     """Enable resource monitor."""
     run_id = None
     """Filter input dataset by run identifier."""
-    run_uuid = "%s_%s" % (strftime("%Y%m%d-%H%M%S"), uuid4())
+    run_uuid = "{}_{}".format(strftime("%Y%m%d-%H%M%S"), uuid4())
     """Unique identifier of this particular run."""
     session_id = None
     """Filter input dataset by session identifier."""
@@ -398,10 +411,10 @@ class execution(_Config):
     """Workflow will crash if upload is not successful."""
     verbose_reports = False
     """Generate extended reports."""
-    webapi_url = "https://mriqc.nimh.nih.gov/api/v1"
+    webapi_token = "<secret_token>"
+    """Authorization token for the WebAPI service."""
+    webapi_url = "https://mriqc.nimh.nih.gov:443/api/v1"
     """IP address where the MRIQC WebAPI is listening."""
-    webapi_port = None
-    """port where the MRIQC WebAPI is listening."""
     work_dir = Path("work").absolute()
     """Path to a working directory where intermediate results will be available."""
     write_graph = False
@@ -425,51 +438,74 @@ class execution(_Config):
     @classmethod
     def init(cls):
         """Create a new BIDS Layout accessible with :attr:`~execution.layout`."""
+
+        if cls.bids_filters is None:
+            cls.bids_filters = {}
+
+        # Process --run-id if the argument was provided
+        if cls.run_id:
+            for mod in cls.modalities:
+                cls.bids_filters.setdefault(mod.lower(), {})["run"] = cls.run_id
+
         if cls._layout is None:
             import re
             from bids.layout.index import BIDSLayoutIndexer
             from bids.layout import BIDSLayout
 
-            _db_path = cls.bids_database_dir or (
-                cls.work_dir / cls.run_uuid / "bids_db"
-            )
-            _db_path.mkdir(exist_ok=True, parents=True)
+            ignore_paths = [
+                # Ignore folders at the top if they don't start with /sub-<label>/
+                re.compile(r"^(?!/sub-[a-zA-Z0-9]+)"),
+                # Ignore all modality subfolders, except for func/ or anat/
+                re.compile(
+                    r"^/sub-[a-zA-Z0-9]+(/ses-[a-zA-Z0-9]+)?/"
+                    r"(beh|fmap|pet|perf|meg|eeg|ieeg|micr|nirs)"
+                ),
+                # Ignore all files, except for the supported modalities
+                re.compile(r"^.+(?<!(_T1w|_T2w|bold|_dwi))\.(json|nii|nii\.gz)$"),
+            ]
+
+            if cls.participant_label:
+                # If we know participant labels, ignore all other
+                ignore_paths[0] = re.compile(
+                    r"^(?!/sub-("
+                    + "|".join(cls.participant_label)
+                    + r"))"
+                )
 
             # Recommended after PyBIDS 12.1
             _indexer = BIDSLayoutIndexer(
                 validate=False,
-                ignore=(
-                    "code",
-                    "stimuli",
-                    "sourcedata",
-                    "models",
-                    "derivatives",
-                    "scripts",
-                    re.compile(r"^\."),
-                    # Exclude modalities and contrasts ignored by MRIQC (doesn't know how to QC)
-                    re.compile(
-                        r"sub-[a-zA-Z0-9]+(/ses-[a-zA-Z0-9]+)?/(dwi|fmap|perf)/"
-                    ),
-                    re.compile(
-                        r"sub-[a-zA-Z0-9]+(/ses-[a-zA-Z0-9]+)?/anat/.*_"
-                        r"(PDw|T2starw|FLAIR|inplaneT1|inplaneT2|PDT2|angio|T2star"
-                        r"|FLASH|PD|T1map|T2map|T2starmap|R1map|R2map|R2starmap|PDmap"
-                        r"|MTRmap|MTsat|UNIT1|T1rho|MWFmap|MTVmap|PDT2map|Chimap"
-                        r"|S0map|M0map|defacemask|MESE|MEGRE|VFA|IRT1|MP2RAGE|MPM|MTS|MTR)\."
-                    ),
-                    re.compile(
-                        r"sub-[a-zA-Z0-9]+(/ses-[a-zA-Z0-9]+)?/func/.*"
-                        r"_(cbv|sbref|phase|events|physio|stim)\."
-                    ),
-                ),
+                ignore=ignore_paths,
             )
+
+            # Initialize database in a multiprocessing-safe manner
+            _db_path = (
+                cls.work_dir if cls.participant_label else cls.output_dir
+            ) / f".bids_db-{cls.run_uuid}"
+
+            if cls.bids_database_dir is None:
+                cls.bids_database_dir = (
+                    cls.output_dir / ".bids_db"
+                    if not cls.participant_label else _db_path
+                )
+
+            if cls.bids_database_wipe or not cls.bids_database_dir.exists():
+                _db_path.mkdir(exist_ok=True, parents=True)
+
+                cls._layout = BIDSLayout(
+                    str(cls.bids_dir),
+                    database_path=_db_path,
+                    indexer=_indexer,
+                )
+
+                if _db_path != cls.bids_database_dir:
+                    _db_path.replace(cls.bids_database_dir.absolute())
+
             cls._layout = BIDSLayout(
                 str(cls.bids_dir),
-                database_path=_db_path,
-                reset_database=cls.bids_database_dir is None,
+                database_path=cls.bids_database_dir,
                 indexer=_indexer,
             )
-            cls.bids_database_dir = _db_path
 
         cls.layout = cls._layout
 
@@ -499,10 +535,6 @@ class workflow(_Config):
     """Radius in mm. of the sphere for the FD calculation."""
     fft_spikes_detector = False
     """Turn on FFT based spike detector (slow)."""
-    headmask = "BET"
-    """Use FSL BET in :py:func:`~mriqc.workflows.anatomical.headmsk_wf`."""
-    ica = False
-    """Run ICA on the raw data and include the components in the individual reports."""
     inputs = None
     """List of files to be processed with MRIQC."""
     species = "human"
@@ -634,11 +666,28 @@ def to_filename(filename):
     filename.write_text(dumps())
 
 
-def _process_initializer(cwd, omp_nthreads):
+def _process_initializer(config_file: Path):
     """Initialize the environment of the child process."""
-    os.chdir(cwd)
+    from mriqc import config
+
+    # Disable eTelemetry
     os.environ["NIPYPE_NO_ET"] = "1"
-    os.environ["OMP_NUM_THREADS"] = f"{omp_nthreads}"
+    os.environ["NO_ET"] = "1"
+
+    # Load config
+    config.load(config_file)
+
+    # Initialize nipype config
+    config.nipype.init()
+
+    # Make sure loggers are started
+    config.loggers.init()
+
+    # Change working directory according to the config
+    os.chdir(config.execution.cwd)
+
+    # Set the maximal number of threads per process
+    os.environ["OMP_NUM_THREADS"] = f"{config.nipype.omp_nthreads}"
 
 
 def restore_env():

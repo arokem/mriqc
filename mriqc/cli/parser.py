@@ -55,7 +55,6 @@ def _build_parser():
     from argparse import Action, ArgumentDefaultsHelpFormatter, ArgumentParser
     from functools import partial
     from pathlib import Path
-    from shutil import which
 
     from packaging.version import Version
 
@@ -102,7 +101,7 @@ def _build_parser():
     parser = ArgumentParser(
         description=f"""\
 MRIQC {config.environment.version}
-Automated Quality Control and visual reports for Quality Assesment of structural \
+Automated Quality Control and visual reports for Quality Assessment of structural \
 (T1w, T2w) and functional MRI of the brain.
 
 {config.DSA_MESSAGE}""",
@@ -174,6 +173,12 @@ Automated Quality Control and visual reports for Quality Assesment of structural
         "identifier (the sub- prefix can be removed).",
     )
     g_bids.add_argument(
+        '--bids-filter-file', action='store', type=Path, metavar='PATH',
+        help='a JSON file describing custom BIDS input filter using pybids '
+             '{<suffix>:{<entity>:<filter>,...},...} '
+             '(https://github.com/bids-standard/pybids/blob/master/bids/layout/config/bids.json)'
+    )
+    g_bids.add_argument(
         "--session-id",
         action="store",
         nargs="*",
@@ -185,7 +190,7 @@ Automated Quality Control and visual reports for Quality Assesment of structural
         action="store",
         type=int,
         nargs="*",
-        help="Filter input dataset by run ID (only integer run IDs are valid).",
+        help="DEPRECATED - This argument will be disabled. Use ``--bids-filter-file`` instead.",
     )
     g_bids.add_argument(
         "--task-id",
@@ -198,6 +203,8 @@ Automated Quality Control and visual reports for Quality Assesment of structural
         "-m",
         "--modalities",
         action="store",
+        choices=config.SUPPORTED_SUFFIXES,
+        default=config.SUPPORTED_SUFFIXES,
         nargs="*",
         help="Filter input dataset by MRI type.",
     )
@@ -207,6 +214,12 @@ Automated Quality Control and visual reports for Quality Assesment of structural
         metavar="PATH",
         help="Path to an existing PyBIDS database folder, for faster indexing "
         "(especially useful for large datasets).",
+    )
+    g_bids.add_argument(
+        "--bids-database-wipe",
+        action="store_true",
+        default=False,
+        help="Wipe out previously existing BIDS indexing caches, forcing re-indexing.",
     )
 
     # General performance
@@ -264,7 +277,7 @@ not be what you want in, e.g., shared systems like a HPC cluster.""",
         action="store_true",
         default=True,
         help="Cast the input data to float32 if it's represented in higher precision "
-        "(saves space and improves perfomance).",
+        "(saves space and improves performance).",
     )
     g_perfm.add_argument(
         "--pdb",
@@ -285,6 +298,7 @@ not be what you want in, e.g., shared systems like a HPC cluster.""",
         help="Path where intermediate results should be stored.",
     )
     g_outputs.add_argument("--verbose-reports", default=False, action="store_true")
+    g_outputs.add_argument("--reports-only", default=False, action="store_true")
     g_outputs.add_argument(
         "--write-graph",
         action="store_true",
@@ -346,6 +360,13 @@ not be what you want in, e.g., shared systems like a HPC cluster.""",
         default=False,
         help="Upload will fail if upload is strict.",
     )
+    g_outputs.add_argument(
+        "--notrack",
+        action="store_true",
+        help="Opt-out of sending tracking information of this run to the NiPreps developers. This"
+        " information helps to improve MRIQC and provides an indicator of real world usage "
+        " crucial for obtaining funding.",
+    )
 
     # ANTs options
     g_ants = parser.add_argument_group("Specific settings for ANTs")
@@ -363,14 +384,6 @@ not be what you want in, e.g., shared systems like a HPC cluster.""",
 
     # Functional workflow settings
     g_func = parser.add_argument_group("Functional MRI workflow configuration")
-    if which("melodic") is not None:
-        g_func.add_argument(
-            "--ica",
-            action="store_true",
-            default=False,
-            help="Run ICA on the raw data and include the components "
-            "in the individual reports (slow but potentially very insightful).",
-        )
     g_func.add_argument(
         "--fft-spikes-detector",
         action="store_true",
@@ -440,8 +453,10 @@ def parse_args(args=None, namespace=None):
     """Parse args and run further checks on the command line."""
     from logging import DEBUG
     from contextlib import suppress
+    from json import loads
+    from pprint import pformat
 
-    from ..utils.bids import collect_bids_data
+    from niworkflows.utils.bids import collect_data, DEFAULT_BIDS_QUERIES
 
     parser = _build_parser()
     opts = parser.parse_args(args, namespace)
@@ -461,6 +476,10 @@ def parse_args(args=None, namespace=None):
             config.nipype.nprocs = config.nipype.plugin_args.get(
                 "nprocs", config.nipype.nprocs
             )
+
+    # Load BIDS filters
+    if opts.bids_filter_file:
+        config.execution.bids_filters = loads(opts.bids_filter_file.read_text())
 
     bids_dir = config.execution.bids_dir
     output_dir = config.execution.output_dir
@@ -513,33 +532,40 @@ def parse_args(args=None, namespace=None):
     config.workflow.analysis_level = list(analysis_level)
 
     # List of files to be run
-    bids_filters = {
-        "participant_label": config.execution.participant_label,
-        "session": config.execution.session_id,
-        "run": config.execution.run_id,
-        "task": config.execution.task_id,
-        "bids_type": config.execution.modalities,
+    lc_modalities = [mod.lower() for mod in config.execution.modalities]
+    bids_dataset, _ = collect_data(
+        config.execution.layout,
+        config.execution.participant_label,
+        session_id=config.execution.session_id,
+        task=config.execution.task_id,
+        group_echos=True,
+        bids_filters=config.execution.bids_filters,
+        queries={mod: DEFAULT_BIDS_QUERIES[mod] for mod in lc_modalities}
+    )
+
+    # Drop empty queries
+    bids_dataset = {
+        mod: files for mod, files in bids_dataset.items() if files
     }
-    config.workflow.inputs = {
-        mod: files
-        for mod, files in collect_bids_data(
-            config.execution.layout, **bids_filters
-        ).items()
-        if files
-    }
+    config.workflow.inputs = bids_dataset
 
     # Check the query is not empty
     if not list(config.workflow.inputs.values()):
-        _j = "\n *"
+        ffile = (
+            "(--bids-filter-file was not set)" if not opts.bids_filter_file
+            else f"(with '--bids-filter-file {opts.bids_filter_file}')"
+        )
         parser.error(
             f"""\
 Querying BIDS dataset at <{config.execution.bids_dir}> got an empty result.
-Please, check out your currently set filters:
-{_j.join([''] + [': '.join((k, str(v))) for k, v in bids_filters.items()])}"""
+Please, check out your currently set filters {ffile}:
+{pformat(config.execution.bids_filters, indent=2, width=99)}"""
         )
 
     # Check no DWI or others are sneaked into MRIQC
-    unknown_mods = set(config.workflow.inputs.keys()) - set(("T1w", "T2w", "bold"))
+    unknown_mods = set(config.workflow.inputs.keys()) - set(
+        suffix.lower() for suffix in config.SUPPORTED_SUFFIXES
+    )
     if unknown_mods:
         parser.error(
             "MRIQC is unable to process the following modalities: "
@@ -549,7 +575,7 @@ Please, check out your currently set filters:
     # Estimate the biggest file size / leave 1GB if some file does not exist (datalad)
     with suppress(FileNotFoundError):
         config.workflow.biggest_file_gb = _get_biggest_file_size_gb(
-            [i for sublist in config.workflow.inputs.values() for i in sublist]
+            config.workflow.inputs.values()
         )
 
     # set specifics for alternative populations
@@ -562,17 +588,19 @@ Please, check out your currently set filters:
             # ~ PA:10 mm, LR:7.5 mm, and IS:5 mm (see DOI: 10.1089/089771503770802853)
             # roll movement is most likely to occur, so set to 7.5 mm
             config.workflow.fd_radius = 7.5
-            config.workflow.headmask = "NoBET"
             # block uploads for the moment; can be reversed before wider release
             config.execution.no_sub = True
 
 
 def _get_biggest_file_size_gb(files):
+    """Identify the largest file size (allows multi-echo groups)."""
+
     import os
 
-    max_size = 0
+    sizes = []
     for file in files:
-        size = os.path.getsize(file) / (1024**3)
-        if size > max_size:
-            max_size = size
-    return max_size
+        if isinstance(file, (list, tuple)):
+            sizes.append(_get_biggest_file_size_gb(file))
+        else:
+            sizes.append(os.path.getsize(file))
+    return max(sizes) / (1024**3)

@@ -21,14 +21,15 @@
 #     https://www.nipreps.org/community/licensing/
 #
 """Helper functions for the workflows."""
-from builtins import range
 
 
 def _tofloat(inlist):
     if isinstance(inlist, (list, tuple)):
-        return [float(el) for el in inlist]
-    else:
-        return float(inlist)
+        return (
+            [_tofloat(el) for el in inlist] if len(inlist) > 1
+            else _tofloat(inlist[0])
+        )
+    return float(inlist)
 
 
 def fwhm_dict(fwhm):
@@ -45,7 +46,7 @@ def fwhm_dict(fwhm):
 def thresh_image(in_file, thres=0.5, out_file=None):
     """Thresholds an image"""
     import os.path as op
-
+    import numpy as np
     import nibabel as nb
 
     if out_file is None:
@@ -53,10 +54,10 @@ def thresh_image(in_file, thres=0.5, out_file=None):
         if ext == ".gz":
             fname, ext2 = op.splitext(fname)
             ext = ext2 + ext
-        out_file = op.abspath("{}_thresh{}".format(fname, ext))
+        out_file = op.abspath(f"{fname}_thresh{ext}")
 
     im = nb.load(in_file)
-    data = im.get_data()
+    data = np.asanyarray(im.dataobj)
     data[data < thres] = 0
     data[data > 0] = 1
     nb.Nifti1Image(data, im.affine, im.header).to_filename(out_file)
@@ -107,7 +108,7 @@ def slice_wise_fft(in_file, ftmask=None, spike_thres=3.0, out_prefix=None):
             fname, _ = op.splitext(fname)
         out_prefix = op.abspath(fname)
 
-    func_data = nb.load(in_file).get_data()
+    func_data = nb.load(in_file).get_fdata()
 
     if ftmask is None:
         ftmask = spectrum_mask(tuple(func_data.shape[:2]))
@@ -159,8 +160,8 @@ def slice_wise_fft(in_file, ftmask=None, spike_thres=3.0, out_prefix=None):
             sl[sl > 0] = 1
 
             # Erode peaks and see how many survive
-            struc = generate_binary_structure(2, 2)
-            sl = binary_erosion(sl.astype(np.uint8), structure=struc).astype(np.uint8)
+            struct = generate_binary_structure(2, 2)
+            sl = binary_erosion(sl.astype(np.uint8), structure=struct).astype(np.uint8)
 
             if sl.sum() > 10:
                 spikes_list.append((t, z))
@@ -182,3 +183,65 @@ def get_fwhmx():
 
     fwhm_interface = FWHMx(**fwhm_args)
     return fwhm_interface
+
+
+def generate_filename(in_file, dirname=None, suffix="", extension=None):
+    """
+    Generate a nipype-like filename.
+
+    >>> str(generate_filename("/path/to/input.nii.gz").relative_to(Path.cwd()))
+    'input.nii.gz'
+
+    >>> str(generate_filename(
+    ...     "/path/to/input.nii.gz", dirname="/other/path",
+    ... ))
+    '/other/path/input.nii.gz'
+
+    >>> str(generate_filename(
+    ...     "/path/to/input.nii.gz", dirname="/other/path", extension="tsv",
+    ... ))
+    '/other/path/input.tsv'
+
+    >>> str(generate_filename(
+    ...     "/path/to/input.nii.gz", dirname="/other/path", extension=".tsv",
+    ... ))
+    '/other/path/input.tsv'
+
+    >>> str(generate_filename(
+    ...     "/path/to/input.nii.gz", dirname="/other/path", extension="",
+    ... ))
+    '/other/path/input'
+
+    >>> str(generate_filename(
+    ...     "/path/to/input.nii.gz", dirname="/other/path", extension="", suffix="_mod",
+    ... ))
+    '/other/path/input_mod'
+
+    >>> str(generate_filename(
+    ...     "/path/to/input.nii.gz", dirname="/other/path", extension="", suffix="mod",
+    ... ))
+    '/other/path/input_mod'
+
+    >>> str(generate_filename(
+    ...     "/path/to/input", dirname="/other/path", extension="tsv", suffix="mod",
+    ... ))
+    '/other/path/input_mod.tsv'
+
+    """
+    from pathlib import Path
+    in_file = Path(in_file)
+    in_ext = "".join(in_file.suffixes)
+
+    dirname = Path.cwd() if dirname is None else Path(dirname)
+
+    if extension is not None:
+        extension = extension if not extension or extension.startswith(".") else f".{extension}"
+    else:
+        extension = in_ext
+
+    stem = in_file.name[:-len(in_ext)] if in_ext else in_file.name
+
+    if suffix and not suffix.startswith("_"):
+        suffix = f"_{suffix}"
+
+    return dirname / f"{stem}{suffix}{extension}"

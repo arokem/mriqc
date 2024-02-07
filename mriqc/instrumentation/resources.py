@@ -23,12 +23,12 @@
 """Instrumentation to profile resource utilization."""
 from time import time_ns, sleep
 from datetime import datetime
-from tempfile import mkstemp
 from pathlib import Path
 from multiprocessing import Process, Event
 from contextlib import suppress
 import signal
 import psutil
+
 
 _MB = 1024.0**2
 SAMPLE_ATTRS = (
@@ -43,6 +43,33 @@ SAMPLE_ATTRS = (
 )
 
 
+def FindProcess(process_name):
+    """
+     Find a process by its name and returns its PID. Child processes are excluded
+     Parameters
+     ----------
+     process_name : :obj:`str`
+         The name of the process that must be found.
+    Return
+     ----------
+     PID of the process if found, False if the process is not found
+    """
+
+    for proc in psutil.process_iter():
+        try:
+            if process_name == proc.name():
+
+                parent = proc.parent()
+
+                if parent.name() != process_name:
+                    return proc.pid
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    print("Process ", process_name, " not found")
+    return False
+
+
 def sample(
     pid=None,
     recursive=True,
@@ -51,7 +78,6 @@ def sample(
 ):
     """
     Probe process tree and snapshot current resource utilization.
-
     Parameters
     ----------
     pid : :obj:`int` or :obj:`None`
@@ -62,7 +88,6 @@ def sample(
     attrs : :obj:`iterable` of :obj:`str`
         A list of :obj:`psutil.Process` attribute names that will be retrieved when
         sampling.
-
     """
     proc_list = [psutil.Process(pid)]
     if proc_list and recursive:
@@ -121,16 +146,18 @@ def sample2file(
 
 
 class ResourceRecorder(Process):
-    """Attach a ``Thread`` to sample a specific PID with a certain frequence."""
+    """Attach a ``Thread`` to sample a specific PID with a certain frequency."""
 
     def __init__(
         self, pid, frequency=0.2, log_file=None, exclude_probe=True, **process_kwargs
     ):
         Process.__init__(self, name="nipype_resmon", daemon=True, **process_kwargs)
 
-        self._pid = pid
+        self._pid = int(pid)
         """The process to be sampled."""
-        self._logfile = log_file
+        self._logfile = str(
+            Path(log_file if log_file is not None else f".prof-{pid}.tsv").absolute()
+        )
         """An open file descriptor where results are dumped."""
         self._exclude = exclude_probe or tuple()
         """A list/tuple containing PIDs that should not be monitored."""
@@ -144,17 +171,10 @@ class ResourceRecorder(Process):
 
     def run(self, *args, **kwargs):
         """Core monitoring function, called by start()"""
-
         # Open file now, because it cannot be pickled.
-        _logfile = (
-            Path(self._logfile)
-            if self._logfile
-            else Path(mkstemp(prefix="prof-", suffix=".tsv")[1])
-        )
-        _logfile.parent.mkdir(parents=True, exist_ok=True)
-        self._logfile = str(_logfile.absolute())
 
-        _logfile = _logfile.open("w")
+        Path(self._logfile).parent.mkdir(parents=True, exist_ok=True)
+        _logfile = Path(self._logfile).open("w")
 
         # Write headers (comment trace + header row)
         _header = [
@@ -169,6 +189,9 @@ class ResourceRecorder(Process):
         # Add self to exclude list if pertinent
         if self._exclude is True:
             self._exclude = (psutil.Process().pid,)
+
+        # Ensure done is not marked set
+        self._done.clear()
 
         # Initiate periodic sampling
         start_time = time_ns()

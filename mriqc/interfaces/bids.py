@@ -49,6 +49,7 @@ class IQMFileSinkInputSpec(DynamicTraitedSpec, BaseInterfaceInputSpec):
     rec_id = traits.Either(None, Str, usedefault=True)
     run_id = traits.Either(None, traits.Int, usedefault=True)
     dataset = Str(desc="dataset identifier")
+    dismiss_entities = traits.List(["part"], usedefault=True)
     metadata = traits.Dict()
     provenance = traits.Dict()
 
@@ -59,12 +60,12 @@ class IQMFileSinkInputSpec(DynamicTraitedSpec, BaseInterfaceInputSpec):
     def __setattr__(self, key, value):
         if key not in self.copyable_trait_names():
             if not isdefined(value):
-                super(IQMFileSinkInputSpec, self).__setattr__(key, value)
+                super().__setattr__(key, value)
             self._outputs[key] = value
         else:
             if key in self._outputs:
                 self._outputs[key] = value
-            super(IQMFileSinkInputSpec, self).__setattr__(key, value)
+            super().__setattr__(key, value)
 
 
 class IQMFileSinkOutputSpec(TraitedSpec):
@@ -77,7 +78,7 @@ class IQMFileSink(SimpleInterface):
     expr = re.compile("^root[0-9]+$")
 
     def __init__(self, fields=None, force_run=True, **inputs):
-        super(IQMFileSink, self).__init__(**inputs)
+        super().__init__(**inputs)
 
         if fields is None:
             fields = []
@@ -110,6 +111,17 @@ class IQMFileSink(SimpleInterface):
                 bids_root = path.parents[i + 1]
                 break
         in_file = str(path.relative_to(bids_root))
+
+        if (
+            isdefined(self.inputs.dismiss_entities)
+            and (dismiss := self.inputs.dismiss_entities)
+        ):
+            for entity in dismiss:
+                bids_chunks = [
+                    chunk for chunk in path.name.split("_")
+                    if not chunk.startswith(f"{entity}-")
+                ]
+                path = path.parent / "_".join(bids_chunks)
 
         # Build path and ensure directory exists
         bids_path = out_dir / in_file.replace("".join(Path(in_file).suffixes), ".json")
@@ -149,7 +161,7 @@ class IQMFileSink(SimpleInterface):
 
         # Fill in the "bids_meta" key
         id_dict = {}
-        for comp in list(BIDS_COMP.keys()):
+        for comp in BIDS_COMP:
             comp_val = getattr(self.inputs, comp, None)
             if isdefined(comp_val) and comp_val is not None:
                 id_dict[comp] = comp_val

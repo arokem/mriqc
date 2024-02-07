@@ -53,7 +53,8 @@ def main():
         dir=config.execution.work_dir, prefix=".mriqc.", suffix=".toml"
     )
     config.to_filename(config_file)
-
+    config.file_path = config_file
+    exitcode = 0
     # Set up participant level
     if "participant" in config.workflow.analysis_level:
         _pool = None
@@ -72,7 +73,7 @@ def main():
             _pool = ProcessPoolExecutor(
                 max_workers=config.nipype.nprocs,
                 initializer=config._process_initializer,
-                initargs=(config.execution.cwd, config.nipype.omp_nthreads),
+                initargs=(config.file_path,),
             )
 
         _resmon = None
@@ -86,6 +87,11 @@ def main():
                 ),
             )
             _resmon.start()
+
+        if not config.execution.notrack:
+            from ..utils.telemetry import setup_migas
+
+            setup_migas()
 
         # CRITICAL Call build_workflow(config_file, retval) in a subprocess.
         # Because Python on Linux does not ever free virtual memory (VM), running the
@@ -101,18 +107,18 @@ def main():
             p.join()
 
             mriqc_wf = retval.get("workflow", None)
-            retcode = p.exitcode or retval.get("return_code", 0)
+            exitcode = p.exitcode or retval.get("return_code", 0)
 
         # CRITICAL Load the config from the file. This is necessary because the ``build_workflow``
         # function executed constrained in a process may change the config (and thus the global
         # state of MRIQC).
         config.load(config_file)
 
-        retcode = retcode or (mriqc_wf is None) * os.EX_SOFTWARE
-        if retcode != 0:
-            sys.exit(retcode)
+        exitcode = exitcode or (mriqc_wf is None) * os.EX_SOFTWARE
+        if exitcode != 0:
+            sys.exit(exitcode)
 
-        # Initalize nipype config
+        # Initialize nipype config
         config.nipype.init()
         # Make sure loggers are started
         config.loggers.init()
@@ -139,7 +145,7 @@ def main():
         if mriqc_wf and config.execution.write_graph:
             mriqc_wf.write_graph(graph2use="colored", format="svg", simple_form=True)
 
-        if not config.execution.dry_run:
+        if not config.execution.dry_run or not config.execution.reports_only:
             # Warn about submitting measures BEFORE
             if not config.execution.no_sub:
                 config.loggers.cli.warning(config.DSA_MESSAGE)
@@ -161,6 +167,12 @@ def main():
             # Warn about submitting measures AFTER
             if not config.execution.no_sub:
                 config.loggers.cli.warning(config.DSA_MESSAGE)
+
+        if not config.execution.dry_run:
+            from mriqc.reports.individual import generate_reports
+
+            generate_reports()
+
         config.loggers.cli.log(25, messages.PARTICIPANT_FINISHED)
 
         if _resmon is not None:
@@ -179,15 +191,14 @@ def main():
 
     # Set up group level
     if "group" in config.workflow.analysis_level:
-        from ..reports import group_html
-        from ..utils.bids import DEFAULT_TYPES
+        from mriqc.reports.group import gen_html as group_html
         from ..utils.misc import generate_tsv  # , generate_pred
 
         config.loggers.cli.info(messages.GROUP_START)
 
         # Generate reports
         mod_group_reports = []
-        for mod in config.execution.modalities or DEFAULT_TYPES:
+        for mod in config.execution.modalities or config.SUPPORTED_SUFFIXES:
             output_dir = config.execution.output_dir
             dataframe, out_tsv = generate_tsv(output_dir, mod)
             # If there are no iqm.json files, nothing to do.
@@ -226,6 +237,7 @@ def main():
     write_derivative_description(config.execution.bids_dir, config.execution.output_dir)
     write_bidsignore(config.execution.output_dir)
     config.loggers.cli.info(messages.RUN_FINISHED)
+    sys.exit(exitcode)
 
 
 if __name__ == "__main__":
